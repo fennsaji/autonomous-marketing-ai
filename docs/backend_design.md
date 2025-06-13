@@ -1756,7 +1756,7 @@ services:
       - db
       - redis
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/defeah_marketing
+      - DATABASE_URL=postgres://postgres:Fenn7991@localhost:5432/defeah
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./app:/app/app
@@ -1769,7 +1769,7 @@ services:
       - db
       - redis
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/defeah_marketing
+      - DATABASE_URL=postgres://postgres:Fenn7991@localhost:5432/defeah
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./app:/app/app
@@ -1781,7 +1781,7 @@ services:
       - db
       - redis
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/defeah_marketing
+      - DATABASE_URL=postgres://postgres:Fenn7991@localhost:5432/defeah
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./app:/app/app
