@@ -11,6 +11,8 @@ from app.core.redis import test_redis_connection
 from app.core.config import settings
 from app.utils.exceptions import setup_exception_handlers
 from app.utils.logging import setup_logging
+from app.api import api_v1_router
+from app.schemas import RootResponse, HealthResponse
 
 # Setup logging
 logger = setup_logging()
@@ -60,30 +62,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include API routers
+app.include_router(api_v1_router, prefix=settings.API_V1_STR, tags=["api-v1"])
 
-@app.get("/")
+
+@app.get("/", response_model=RootResponse)
 async def root():
     """Root endpoint."""
-    return {
-        "message": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "environment": settings.ENVIRONMENT,
-        "docs_url": "/docs" if settings.DEBUG else None
-    }
+    return RootResponse(
+        message=settings.PROJECT_NAME,
+        version=settings.VERSION,
+        environment=settings.ENVIRONMENT,
+        docs_url="/docs" if settings.DEBUG else None
+    )
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
     from app.core.redis import test_redis_connection
     
-    return {
-        "status": "healthy",
-        "services": {
+    return HealthResponse(
+        status="healthy",
+        services={
             "database": "connected",
             "redis": "connected" if test_redis_connection() else "disconnected"
         }
-    }
+    )
 
 
 if __name__ == "__main__":

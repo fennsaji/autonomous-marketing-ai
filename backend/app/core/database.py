@@ -28,4 +28,6 @@ def get_db():
 
 def create_tables():
     """Create all database tables."""
+    # Import models to ensure they are registered with Base
+    from app.models import User  # noqa: F401
     Base.metadata.create_all(bind=engine)
