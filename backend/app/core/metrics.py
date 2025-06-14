@@ -1,11 +1,11 @@
 """
 Prometheus metrics for database and application monitoring.
 """
-from prometheus_client import Counter, Histogram, Gauge, Info
 import time
 from functools import wraps
 from typing import Callable, Any
 import logging
+from prometheus_client import Counter, Histogram, Gauge, Info
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ app_info.info({
 def track_db_query_metrics(operation: str):
     """
     Decorator to track database query metrics.
-    
+
     Args:
         operation: Name of the database operation (e.g., 'select', 'insert', 'health_check')
     """
@@ -122,28 +122,28 @@ def track_db_query_metrics(operation: str):
         async def wrapper(*args, **kwargs) -> Any:
             start_time = time.time()
             status = 'success'
-            
+
             try:
                 result = await func(*args, **kwargs)
                 return result
             except Exception as e:
                 status = 'error'
-                logger.error(f"Database operation {operation} failed: {e}")
+                logger.error("Database operation %s failed: %s", operation, e)
                 raise
             finally:
                 duration = time.time() - start_time
-                
+
                 # Update metrics
                 db_query_duration_seconds.labels(
                     operation=operation,
                     status=status
                 ).observe(duration)
-                
+
                 db_queries_total.labels(
                     operation=operation,
                     status=status
                 ).inc()
-                
+
         return wrapper
     return decorator
 
@@ -151,7 +151,7 @@ def track_db_query_metrics(operation: str):
 def track_health_check_metrics(check_type: str):
     """
     Decorator to track health check metrics.
-    
+
     Args:
         check_type: Type of health check (e.g., 'basic', 'database', 'detailed')
     """
@@ -160,28 +160,28 @@ def track_health_check_metrics(check_type: str):
         async def wrapper(*args, **kwargs) -> Any:
             start_time = time.time()
             status = 'success'
-            
+
             try:
                 result = await func(*args, **kwargs)
                 return result
             except Exception as e:
                 status = 'error'
-                logger.error(f"Health check {check_type} failed: {e}")
+                logger.error("Health check %s failed: %s", check_type, e)
                 raise
             finally:
                 duration = time.time() - start_time
-                
+
                 # Update metrics
                 health_check_duration_seconds.labels(
                     check_type=check_type,
                     status=status
                 ).observe(duration)
-                
+
                 health_checks_total.labels(
                     check_type=check_type,
                     status=status
                 ).inc()
-                
+
         return wrapper
     return decorator
 
@@ -190,45 +190,45 @@ def update_connection_pool_metrics():
     """Update connection pool metrics from current engine state."""
     try:
         from app.core.database import get_async_engine, get_sync_engine
-        
+
         # Update async engine metrics
         try:
             async_engine = get_async_engine()
             if async_engine and hasattr(async_engine, 'pool'):
                 pool = async_engine.pool
-                
+
                 if hasattr(pool, 'size'):
                     db_connection_pool_size.labels(engine_type='async').set(pool.size())
-                
+
                 if hasattr(pool, 'checkedout'):
                     db_connection_pool_checked_out.labels(engine_type='async').set(pool.checkedout())
-                    
+
                 if hasattr(pool, 'checkedin'):
                     db_connection_pool_checked_in.labels(engine_type='async').set(pool.checkedin())
-                    
+
         except Exception as e:
-            logger.warning(f"Failed to update async engine metrics: {e}")
-        
+            logger.warning("Failed to update async engine metrics: %s", e)
+
         # Update sync engine metrics
         try:
             sync_engine = get_sync_engine()
             if sync_engine and hasattr(sync_engine, 'pool'):
                 pool = sync_engine.pool
-                
+
                 if hasattr(pool, 'size'):
                     db_connection_pool_size.labels(engine_type='sync').set(pool.size())
-                
+
                 if hasattr(pool, 'checkedout'):
                     db_connection_pool_checked_out.labels(engine_type='sync').set(pool.checkedout())
-                    
+
                 if hasattr(pool, 'checkedin'):
                     db_connection_pool_checked_in.labels(engine_type='sync').set(pool.checkedin())
-                    
+
         except Exception as e:
-            logger.warning(f"Failed to update sync engine metrics: {e}")
-            
+            logger.warning("Failed to update sync engine metrics: %s", e)
+
     except Exception as e:
-        logger.error(f"Failed to update connection pool metrics: {e}")
+        logger.error("Failed to update connection pool metrics: %s", e)
 
 
 def track_retry_attempt(operation: str, attempt_number: int):

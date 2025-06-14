@@ -1,19 +1,17 @@
 """
 Health check endpoints for monitoring database and service status.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.core.database import get_async_db, check_database_connection
 from app.schemas.common import HealthCheckResponse
 from app.core.metrics import (
-    track_health_check_metrics, 
-    update_connection_pool_metrics,
-    health_checks_total,
-    health_check_duration_seconds
+    track_health_check_metrics,
+    update_connection_pool_metrics
 )
 from app.core.circuit_breaker import health_check_circuit_breaker, CircuitBreakerError
-import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,30 +41,30 @@ async def database_health_check():
     try:
         # Use circuit breaker for database health check
         is_healthy = await health_check_circuit_breaker.call(check_database_connection)
-        
+
         if is_healthy:
             return HealthCheckResponse(
                 status="healthy",
                 message="Database connection is healthy",
                 version="1.0.0"
             )
-        else:
-            raise HTTPException(
-                status_code=503,
-                detail="Database connection failed"
-            )
+
+        raise HTTPException(
+            status_code=503,
+            detail="Database connection failed"
+        )
     except CircuitBreakerError as e:
-        logger.warning(f"Database health check circuit breaker open: {e}")
+        logger.warning("Database health check circuit breaker open: %s", e)
         raise HTTPException(
             status_code=503,
             detail="Database health check temporarily unavailable (circuit breaker open)"
-        )
+        ) from e
     except Exception as e:
-        logger.error(f"Database health check failed: {e}")
+        logger.error("Database health check failed: %s", e)
         raise HTTPException(
             status_code=503,
             detail=f"Database health check failed: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/health/detailed", response_model=dict)
@@ -79,15 +77,15 @@ async def detailed_health_check(db: AsyncSession = Depends(get_async_db)):
     try:
         # Test database connection
         await db.execute(text("SELECT 1"))
-        
+
         # Update connection pool metrics
         update_connection_pool_metrics()
-        
+
         # Get database connection pool status
-        from app.core.database import get_async_engine
+        from app.core.database import get_async_engine  # pylint: disable=import-outside-toplevel
         engine = get_async_engine()
         pool = engine.pool
-        
+
         # Get available pool metrics (async pools have different attributes)
         pool_status = {
             "size": getattr(pool, '_pool_size', 'unknown'),
@@ -104,10 +102,10 @@ async def detailed_health_check(db: AsyncSession = Depends(get_async_db)):
                 pool_status["checked_in"] = pool.checkedin()
             if hasattr(pool, 'checked_out'):
                 pool_status["checked_out"] = pool.checkedout()
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             # Some methods might not be available on async pools
             pass
-        
+
         # Get circuit breaker statistics
         circuit_breaker_stats = health_check_circuit_breaker.get_stats()
         
@@ -131,10 +129,10 @@ async def detailed_health_check(db: AsyncSession = Depends(get_async_db)):
                 "health_metrics": "Available via /api/v1/metrics/health endpoint"
             }
         }
-        
+
     except Exception as e:
-        logger.error(f"Detailed health check failed: {e}")
+        logger.error("Detailed health check failed: %s", e)
         raise HTTPException(
             status_code=503,
             detail=f"Health check failed: {str(e)}"
-        )
+        ) from e
