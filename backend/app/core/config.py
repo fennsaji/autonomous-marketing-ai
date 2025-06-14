@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = secrets.token_urlsafe(32)
     
+    # Authentication
+    ACCESS_TOKEN_EXPIRE_DAYS: int = 7
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    PASSWORD_MIN_LENGTH: int = 8
+    PASSWORD_MAX_LENGTH: int = 128
+    
     # Database
     DATABASE_URL: str = "postgresql://postgres:password@localhost:5433/defeah_marketing"
     DATABASE_URL_ASYNC: str = "postgresql+asyncpg://postgres:password@localhost:5433/defeah_marketing"
