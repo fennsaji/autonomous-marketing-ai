@@ -30,13 +30,80 @@ from app.utils.exceptions import (
     UserAlreadyExistsError, InvalidCredentialsError, PasswordTooWeakError,
     RateLimitError
 )
+from app.schemas import ErrorResponse, ValidationErrorResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 security = HTTPBearer()
 
 
-@router.post("/register", response_model=UserRegistrationResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", 
+    response_model=UserRegistrationResponse, 
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {
+            "description": "User successfully registered",
+            "model": UserRegistrationResponse
+        },
+        400: {
+            "description": "Bad request - Password too weak",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": {
+                            "code": "PASSWORD_TOO_WEAK",
+                            "message": "Password is too weak (score: 45/60). Please choose a stronger password",
+                            "error_id": "123e4567-e89b-12d3-a456-426614174000"
+                        },
+                        "status": "error"
+                    }
+                }
+            }
+        },
+        409: {
+            "description": "Conflict - User already exists",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": {
+                            "code": "USER_ALREADY_EXISTS",
+                            "message": "User with this email already exists",
+                            "error_id": "123e4567-e89b-12d3-a456-426614174000"
+                        },
+                        "status": "error"
+                    }
+                }
+            }
+        },
+        422: {
+            "description": "Validation error",
+            "model": ValidationErrorResponse
+        },
+        429: {
+            "description": "Rate limit exceeded",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": {
+                            "code": "RATE_LIMIT_EXCEEDED",
+                            "message": "Too many registration attempts",
+                            "error_id": "123e4567-e89b-12d3-a456-426614174000",
+                            "details": {
+                                "retry_after": 300
+                            }
+                        },
+                        "status": "error"
+                    }
+                }
+            }
+        }
+    },
+    tags=["authentication"]
+)
 async def register_user(
     user_data: UserRegisterRequest,
     request: Request,
@@ -45,9 +112,25 @@ async def register_user(
     """
     Register a new user account.
     
-    Creates a new user with email and password validation.
-    Returns user information without authentication tokens.
-    Email verification may be required before login.
+    Creates a new user with comprehensive validation including:
+    - Email format validation and uniqueness check
+    - Password strength requirements (minimum 8 characters, 3 character types)
+    - Rate limiting protection (3 attempts per 5 minutes per IP)
+    
+    **Security Features:**
+    - Password strength scoring and validation
+    - Rate limiting to prevent spam registrations
+    - Input sanitization and validation
+    - Secure password hashing with bcrypt
+    
+    **Returns:**
+    - User profile information (without sensitive data)
+    - Registration success message
+    - Email verification may be required for login
+    
+    **Rate Limits:**
+    - 3 registration attempts per 5 minutes per IP address
+    - 429 status code returned when limit exceeded
     """
     # Check rate limit
     try:

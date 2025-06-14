@@ -66,10 +66,47 @@ class Settings(BaseSettings):
     
     # CORS Configuration
     BACKEND_CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:8000",
+        "http://localhost:3000",  # React development server
+        "http://localhost:3001",  # Alternative React port
+        "http://localhost:8000",  # API server (for docs)
+        "http://127.0.0.1:3000",  # IPv4 localhost
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:8000",
     ]
+    
+    # Additional CORS settings
+    CORS_ALLOW_CREDENTIALS: bool = True
+    CORS_ALLOW_METHODS: List[str] = ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+    CORS_ALLOW_HEADERS: List[str] = [
+        "Accept",
+        "Accept-Language", 
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "X-CSRFToken",
+        "X-API-Key"
+    ]
+    CORS_EXPOSE_HEADERS: List[str] = [
+        "X-Error-ID",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining", 
+        "X-RateLimit-Reset",
+        "Retry-After"
+    ]
+    CORS_MAX_AGE: int = 600  # 10 minutes
+    
+    # Trusted Hosts Configuration
+    TRUSTED_HOSTS_DEVELOPMENT: List[str] = ["localhost", "127.0.0.1", "0.0.0.0"]
+    TRUSTED_HOSTS_PRODUCTION: List[str] = ["api.defeah.com", "defeah.com"]
+    
+    @property
+    def TRUSTED_HOSTS(self) -> List[str]:
+        """Get trusted hosts based on environment."""
+        base_hosts = self.TRUSTED_HOSTS_DEVELOPMENT.copy()
+        if self.ENVIRONMENT == "production":
+            base_hosts.extend(self.TRUSTED_HOSTS_PRODUCTION)
+        return base_hosts
 
     class Config:
         env_file = ".env"
