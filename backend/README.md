@@ -220,7 +220,7 @@ docker-compose down -v
 
 ### Common Issues
 
-1. **Port conflicts**: Ensure ports 8000, 5433, and 6379 are available
+1. **Port conflicts**: Ensure ports 8080, 5433, and 6379 are available
 2. **Docker permission issues**: Make sure Docker daemon is running
 3. **Database connection**: Check PostgreSQL is running and accessible
 
