@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     CORS_MAX_AGE: int = 600  # 10 minutes
     
     # Trusted Hosts Configuration
-    TRUSTED_HOSTS_DEVELOPMENT: List[str] = ["localhost", "127.0.0.1", "0.0.0.0"]
+    TRUSTED_HOSTS_DEVELOPMENT: List[str] = ["localhost", "127.0.0.1", "0.0.0.0", "testserver"]
     TRUSTED_HOSTS_PRODUCTION: List[str] = ["api.defeah.com", "defeah.com"]
     
     @property

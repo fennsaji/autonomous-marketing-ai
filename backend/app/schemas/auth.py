@@ -1,7 +1,7 @@
 """
 Authentication schemas for request/response validation.
 """
-from pydantic import BaseModel, EmailStr, validator, Field
+from pydantic import BaseModel, EmailStr, field_validator, Field
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
@@ -13,12 +13,14 @@ class UserRegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=128, description="User's password")
     full_name: Optional[str] = Field(None, max_length=255, description="User's full name")
     
-    @validator('email')
+    @field_validator('email')
+    @classmethod
     def validate_email(cls, v):
         """Validate email format and normalize."""
         return v.lower().strip()
     
-    @validator('full_name')
+    @field_validator('full_name')
+    @classmethod
     def validate_full_name(cls, v):
         """Validate and clean full name."""
         if v:
@@ -33,7 +35,8 @@ class UserLoginRequest(BaseModel):
     email: EmailStr = Field(..., description="User's email address")
     password: str = Field(..., description="User's password")
     
-    @validator('email')
+    @field_validator('email')
+    @classmethod
     def validate_email(cls, v):
         """Validate email format and normalize."""
         return v.lower().strip()
@@ -111,7 +114,8 @@ class PasswordResetRequest(BaseModel):
     """Password reset request schema."""
     email: EmailStr = Field(..., description="User's email address")
     
-    @validator('email')
+    @field_validator('email')
+    @classmethod
     def validate_email(cls, v):
         """Validate email format and normalize."""
         return v.lower().strip()
