@@ -2,7 +2,10 @@
 Pydantic schemas for API validation.
 """
 from .user import UserBase, UserCreate, UserUpdate, UserResponse, UserInDB
-from .common import ErrorResponse, SuccessResponse, HealthResponse, RootResponse
+from .common import (
+    ErrorResponse, ErrorDetail, ValidationErrorResponse, ValidationErrorDetail,
+    SuccessResponse, HealthResponse, ServiceStatus, RootResponse
+)
 
 __all__ = [
     "UserBase",
@@ -11,7 +14,11 @@ __all__ = [
     "UserResponse",
     "UserInDB",
     "ErrorResponse",
+    "ErrorDetail",
+    "ValidationErrorResponse",
+    "ValidationErrorDetail",
     "SuccessResponse",
     "HealthResponse",
+    "ServiceStatus",
     "RootResponse",
 ]

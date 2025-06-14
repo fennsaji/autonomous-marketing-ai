@@ -3,8 +3,12 @@ Custom exceptions and error handling utilities.
 """
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from typing import Optional, Dict, Any
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -154,50 +158,187 @@ class RedisConnectionError(BaseAPIException):
 
 
 def setup_exception_handlers(app: FastAPI):
-    """Setup global exception handlers."""
+    """Setup comprehensive global exception handlers for consistent error responses."""
     
     @app.exception_handler(BaseAPIException)
     async def api_exception_handler(request: Request, exc: BaseAPIException):
-        """Handle custom API exceptions."""
-        logger.error("API Exception: %s (Code: %s)", exc.message, exc.error_code)
+        """Handle custom API exceptions with detailed error information."""
+        error_id = str(uuid.uuid4())
+        
+        logger.error(
+            "API Exception [%s]: %s (Code: %s) - Path: %s %s", 
+            error_id, exc.message, exc.error_code, request.method, request.url.path
+        )
         
         response_content = {
-            "detail": exc.message,
-            "error_code": exc.error_code
+            "error": {
+                "code": exc.error_code or "API_ERROR",
+                "message": exc.message,
+                "error_id": error_id
+            },
+            "status": "error"
         }
         
         # Add details if available
         if exc.details:
-            response_content["details"] = exc.details
+            response_content["error"]["details"] = exc.details
         
         # Add retry-after header for rate limiting
-        headers = {}
-        if isinstance(exc, RateLimitError) and exc.details.get("retry_after"):
+        headers = {"X-Error-ID": error_id}
+        if isinstance(exc, RateLimitError) and exc.details and exc.details.get("retry_after"):
             headers["Retry-After"] = str(exc.details["retry_after"])
         
         return JSONResponse(
             status_code=exc.status_code,
             content=response_content,
-            headers=headers if headers else None
+            headers=headers
+        )
+    
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """Handle Pydantic request validation errors with field-specific details."""
+        error_id = str(uuid.uuid4())
+        
+        logger.warning(
+            "Validation Error [%s]: %s - Path: %s %s", 
+            error_id, str(exc), request.method, request.url.path
+        )
+        
+        # Format validation errors
+        validation_errors = {}
+        for error in exc.errors():
+            field_path = ".".join(str(x) for x in error["loc"])
+            validation_errors[field_path] = {
+                "message": error["msg"],
+                "type": error["type"],
+                "input": error.get("input")
+            }
+        
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Request validation failed",
+                    "error_id": error_id,
+                    "details": {
+                        "validation_errors": validation_errors,
+                        "error_count": len(exc.errors())
+                    }
+                },
+                "status": "error"
+            },
+            headers={"X-Error-ID": error_id}
+        )
+    
+    @app.exception_handler(ValidationError)
+    async def pydantic_validation_exception_handler(request: Request, exc: ValidationError):
+        """Handle Pydantic model validation errors."""
+        error_id = str(uuid.uuid4())
+        
+        logger.warning(
+            "Pydantic Validation Error [%s]: %s - Path: %s %s", 
+            error_id, str(exc), request.method, request.url.path
+        )
+        
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "MODEL_VALIDATION_ERROR",
+                    "message": "Data validation failed",
+                    "error_id": error_id,
+                    "details": {
+                        "validation_errors": exc.errors()
+                    }
+                },
+                "status": "error"
+            },
+            headers={"X-Error-ID": error_id}
         )
     
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
-        """Handle HTTP exceptions."""
-        logger.error("HTTP Exception: %s", exc.detail)
+        """Handle FastAPI HTTP exceptions with standardized format."""
+        error_id = str(uuid.uuid4())
+        
+        logger.warning(
+            "HTTP Exception [%s]: %s (Status: %d) - Path: %s %s", 
+            error_id, exc.detail, exc.status_code, request.method, request.url.path
+        )
+        
+        # Map common HTTP status codes to error codes
+        error_code_map = {
+            400: "BAD_REQUEST",
+            401: "UNAUTHORIZED", 
+            403: "FORBIDDEN",
+            404: "NOT_FOUND",
+            405: "METHOD_NOT_ALLOWED",
+            409: "CONFLICT",
+            410: "GONE",
+            429: "RATE_LIMIT_EXCEEDED",
+            500: "INTERNAL_SERVER_ERROR",
+            502: "BAD_GATEWAY",
+            503: "SERVICE_UNAVAILABLE",
+            504: "GATEWAY_TIMEOUT"
+        }
+        
         return JSONResponse(
             status_code=exc.status_code,
-            content={"detail": exc.detail}
+            content={
+                "error": {
+                    "code": error_code_map.get(exc.status_code, "HTTP_ERROR"),
+                    "message": exc.detail,
+                    "error_id": error_id
+                },
+                "status": "error"
+            },
+            headers={"X-Error-ID": error_id}
+        )
+    
+    @app.exception_handler(StarletteHTTPException)
+    async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException):
+        """Handle Starlette HTTP exceptions."""
+        error_id = str(uuid.uuid4())
+        
+        logger.warning(
+            "Starlette HTTP Exception [%s]: %s (Status: %d) - Path: %s %s", 
+            error_id, exc.detail, exc.status_code, request.method, request.url.path
+        )
+        
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": "HTTP_ERROR",
+                    "message": exc.detail,
+                    "error_id": error_id
+                },
+                "status": "error"
+            },
+            headers={"X-Error-ID": error_id}
         )
     
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception):
-        """Handle general exceptions."""
-        logger.error("Unhandled exception: %s", str(exc), exc_info=True)
+        """Handle unexpected exceptions with secure error information."""
+        error_id = str(uuid.uuid4())
+        
+        logger.error(
+            "Unhandled Exception [%s]: %s - Path: %s %s", 
+            error_id, str(exc), request.method, request.url.path, 
+            exc_info=True
+        )
+        
         return JSONResponse(
             status_code=500,
             content={
-                "detail": "Internal server error",
-                "error_code": "INTERNAL_SERVER_ERROR"
-            }
+                "error": {
+                    "code": "INTERNAL_SERVER_ERROR",
+                    "message": "An unexpected error occurred. Please try again later.",
+                    "error_id": error_id
+                },
+                "status": "error"
+            },
+            headers={"X-Error-ID": error_id}
         )
