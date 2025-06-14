@@ -79,7 +79,7 @@ async def get_health_metrics():
                 "database": database_circuit_breaker.get_stats(),
             }
         }
-        
+
     except Exception as e:
-        logger.error(f"Failed to get health metrics: {e}")
+        logger.error("Failed to get health metrics: %s", e)
         return {"error": f"Failed to get health metrics: {e}"}
