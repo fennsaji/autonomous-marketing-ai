@@ -21,6 +21,24 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str = "postgresql://postgres:password@localhost:5433/defeah_marketing"
+    DATABASE_URL_ASYNC: str = "postgresql+asyncpg://postgres:password@localhost:5433/defeah_marketing"
+    TEST_DATABASE_URL: str = "postgresql://postgres:password@localhost:5433/defeah_marketing_test"
+    TEST_DATABASE_URL_ASYNC: str = "postgresql+asyncpg://postgres:password@localhost:5433/defeah_marketing_test"
+    
+    # Database Connection Configuration
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 30
+    DB_POOL_RECYCLE: int = 3600  # 1 hour
+    DB_POOL_PRE_PING: bool = True
+    DB_CONNECT_TIMEOUT: int = 30  # seconds
+    DB_COMMAND_TIMEOUT: int = 60  # seconds
+    DB_SERVER_SIDE_CURSORS: bool = False
+    
+    # Database Retry Configuration
+    DB_RETRY_ATTEMPTS: int = 3
+    DB_RETRY_DELAY: float = 1.0  # Base delay in seconds
+    DB_RETRY_BACKOFF: float = 2.0  # Exponential backoff multiplier
+    DB_RETRY_MAX_DELAY: float = 60.0  # Maximum delay between retries
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

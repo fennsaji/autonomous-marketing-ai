@@ -2,17 +2,19 @@
 API v1 router - Main router for version 1 of the API.
 """
 from fastapi import APIRouter
+from app.api.v1.health import router as health_router
+from app.api.v1.metrics import router as metrics_router
 
 # Create main API router
 api_router = APIRouter()
 
-# Health check endpoint for API v1
-@api_router.get("/health")
-async def api_health():
-    """API v1 health check endpoint."""
-    return {"status": "healthy", "version": "v1"}
+# Include health check routes
+api_router.include_router(health_router, tags=["health"])
 
-# Placeholder for future endpoints
+# Include metrics routes
+api_router.include_router(metrics_router, tags=["metrics"])
+
+# API v1 root endpoint
 @api_router.get("/")
 async def api_root():
     """API v1 root endpoint."""
@@ -21,6 +23,10 @@ async def api_root():
         "version": "1.0.0",
         "endpoints": {
             "health": "/api/v1/health",
+            "health_database": "/api/v1/health/database",
+            "health_detailed": "/api/v1/health/detailed",
+            "metrics": "/api/v1/metrics",
+            "metrics_health": "/api/v1/metrics/health",
             "docs": "/docs"
         }
     }

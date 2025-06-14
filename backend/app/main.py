@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.core.database import create_tables
+from app.core.database import create_tables, close_database_connections
 from app.core.redis import test_redis_connection
 from app.core.config import settings
 from app.utils.exceptions import setup_exception_handlers
@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up Defeah Marketing Backend...")
     
     # Create database tables
-    create_tables()
+    await create_tables()
     logger.info("Database tables created/verified")
     
     # Test Redis connection
@@ -39,6 +39,8 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down...")
+    await close_database_connections()
+    logger.info("Database connections closed")
 
 
 app = FastAPI(

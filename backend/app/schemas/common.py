@@ -24,6 +24,13 @@ class HealthResponse(BaseModel):
     services: Dict[str, str]
 
 
+class HealthCheckResponse(BaseModel):
+    """Simple health check response schema."""
+    status: str
+    message: str
+    version: str
+
+
 class RootResponse(BaseModel):
     """Root endpoint response schema."""
     message: str
