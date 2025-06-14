@@ -1,0 +1,36 @@
+[bandit]
+exclude_dirs = [
+    "tests",
+    "migrations", 
+    "alembic",
+    "venv",
+    ".venv",
+    "build",
+    "dist"
+]
+
+# Test IDs to skip
+skips = [
+    "B101",  # assert_used - We allow asserts in our code
+    "B601",  # paramiko_calls - We don't use paramiko
+    "B602",  # subprocess_popen_with_shell_equals_true - We control shell usage
+]
+
+# Confidence levels: LOW, MEDIUM, HIGH
+confidence = "MEDIUM"
+
+# Issue severity: LOW, MEDIUM, HIGH
+severity = "MEDIUM"
+
+# Report format
+format = "json"
+
+# Include test names in output
+include = ["B"]
+
+# Exclude patterns
+exclude = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*_test.py"
+]

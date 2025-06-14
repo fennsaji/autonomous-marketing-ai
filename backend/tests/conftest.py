@@ -1,24 +1,44 @@
 """
 Pytest configuration and fixtures.
 """
+import os
 import pytest
+import asyncio
+from typing import AsyncGenerator, Generator
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import StaticPool
+import fakeredis
 
 from app.main import app
-from app.core.database import Base, get_db
+from app.core.database import Base, get_db, get_async_db
 
-# Test database URL - using PostgreSQL for testing to match production
-# You can also use testcontainers for isolated testing
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:password@localhost:5433/defeah_marketing_test"
+# Test database URLs with environment variable support
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL", 
+    "postgresql://postgres:password@localhost:5433/defeah_marketing_test"
+)
+SQLALCHEMY_ASYNC_DATABASE_URL = os.getenv(
+    "TEST_ASYNC_DATABASE_URL",
+    "postgresql+asyncpg://postgres:password@localhost:5433/defeah_marketing_test"
+)
 
-# Create test database engine
+# Test Redis configuration
+TEST_REDIS_URL = os.getenv("TEST_REDIS_URL", "redis://localhost:6379/1")
+
+# Create test database engines
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
+async_engine = create_async_engine(SQLALCHEMY_ASYNC_DATABASE_URL, echo=False)
 
-# Create test session
+# Create test sessions
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TestingAsyncSessionLocal = async_sessionmaker(
+    bind=async_engine, 
+    class_=AsyncSession, 
+    expire_on_commit=False
+)
 
 
 def override_get_db():
@@ -28,6 +48,12 @@ def override_get_db():
         yield db
     finally:
         db.close()
+
+
+async def override_get_async_db():
+    """Override async database dependency for testing."""
+    async with TestingAsyncSessionLocal() as session:
+        yield session
 
 
 @pytest.fixture(scope="function")
@@ -47,10 +73,30 @@ def db_session():
 
 
 @pytest.fixture(scope="function")
+async def async_db_session():
+    """Create a fresh async database session for each test."""
+    # Create tables
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    # Create session
+    async with TestingAsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+    
+    # Drop tables after test
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture(scope="function")
 def client(db_session):
     """Create a test client with database dependency override."""
-    # Override the database dependency
+    # Override the database dependencies
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_async_db] = override_get_async_db
     
     with TestClient(app) as test_client:
         yield test_client
@@ -64,6 +110,88 @@ def sample_user_data():
     """Sample user data for testing."""
     return {
         "email": "test@example.com",
-        "password": "testpassword123",
+        "password": "TestPassword123!",
         "full_name": "Test User"
     }
+
+
+@pytest.fixture
+def sample_user_login_data():
+    """Sample user login data for testing."""
+    return {
+        "email": "test@example.com",
+        "password": "TestPassword123!"
+    }
+
+
+@pytest.fixture
+def sample_weak_password_data():
+    """Sample user data with weak password for testing."""
+    return {
+        "email": "weak@example.com",
+        "password": "weak",
+        "full_name": "Weak Password User"
+    }
+
+
+@pytest.fixture
+def sample_invalid_email_data():
+    """Sample user data with invalid email for testing."""
+    return {
+        "email": "invalid-email",
+        "password": "TestPassword123!",
+        "full_name": "Invalid Email User"
+    }
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for the test session."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture(scope="session")
+def test_settings():
+    """Test configuration settings."""
+    return {
+        "db_url": SQLALCHEMY_DATABASE_URL,
+        "async_db_url": SQLALCHEMY_ASYNC_DATABASE_URL,
+        "redis_url": TEST_REDIS_URL,
+        "redis_test_db": 1,
+    }
+
+
+@pytest.fixture(scope="function")
+def redis_mock():
+    """Mock Redis instance for testing."""
+    fake_redis = fakeredis.FakeRedis(decode_responses=True)
+    yield fake_redis
+    fake_redis.flushall()
+
+
+@pytest.fixture(scope="function")
+async def async_redis_mock():
+    """Mock async Redis instance for testing."""
+    fake_redis = fakeredis.FakeAsyncRedis(decode_responses=True)
+    yield fake_redis
+    await fake_redis.flushall()
+
+
+@pytest.fixture(scope="function")
+def mock_redis_client(redis_mock):
+    """Mock Redis client with token blacklist functionality."""
+    class MockTokenBlacklist:
+        def __init__(self, redis_client):
+            self.redis = redis_client
+        
+        async def add_token(self, token: str, ttl: int) -> None:
+            """Add token to blacklist."""
+            self.redis.setex(f"blacklist:{token}", ttl, "1")
+        
+        async def is_blacklisted(self, token: str) -> bool:
+            """Check if token is blacklisted."""
+            return bool(self.redis.get(f"blacklist:{token}"))
+    
+    return MockTokenBlacklist(redis_mock)
