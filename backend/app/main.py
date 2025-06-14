@@ -8,6 +8,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from contextlib import asynccontextmanager
 import logging
+import asyncio
+import time
+import secrets
 
 from app.core.database import create_tables, close_database_connections
 from app.core.redis import test_redis_connection
@@ -22,19 +25,59 @@ logger = setup_logging()
 logger = logging.getLogger(__name__)
 
 
+async def safe_health_check(check_func, service_name: str, *args, **kwargs) -> dict:
+    """
+    Safely execute a health check function with error handling.
+    
+    Args:
+        check_func: The health check function to execute
+        service_name: Name of the service being checked
+        *args, **kwargs: Arguments to pass to the check function
+        
+    Returns:
+        Dictionary with status and response time
+    """
+    try:
+        start_time = time.time()
+        is_healthy = await check_func(*args, **kwargs) if asyncio.iscoroutinefunction(check_func) else check_func(*args, **kwargs)
+        response_time = round((time.time() - start_time) * 1000, 2)
+        
+        return {
+            "status": "healthy" if is_healthy else "unhealthy",
+            "response_time_ms": response_time
+        }
+    except Exception as e:
+        logger.error("Health check failed for %s: %s", service_name, str(e))
+        return {
+            "status": "error",
+            "response_time_ms": 0
+        }
+
+
+def generate_csp_nonce() -> str:
+    """Generate a cryptographically secure nonce for CSP."""
+    return secrets.token_urlsafe(16)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Middleware to add security headers to all responses."""
     
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         
-        # Add comprehensive security headers
+        # Generate nonce for this request
+        nonce = generate_csp_nonce()
+        
+        # Store nonce in request state for potential use in templates
+        request.state.csp_nonce = nonce
+        
+        # Add comprehensive security headers with nonce-based CSP
         security_headers = {
             "X-Content-Type-Options": "nosniff",
             "X-Frame-Options": "DENY",
             "X-XSS-Protection": "1; mode=block",
             "Referrer-Policy": "strict-origin-when-cross-origin",
-            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;",
+            "Content-Security-Policy": f"default-src 'self'; script-src 'self' 'nonce-{nonce}'; style-src 'self' 'nonce-{nonce}' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';",
             "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
         }
         
@@ -170,13 +213,9 @@ setup_exception_handlers(app)
 app.add_middleware(SecurityHeadersMiddleware)
 
 # Trusted host middleware to prevent Host header attacks
-trusted_hosts = ["localhost", "127.0.0.1", "0.0.0.0"]
-if settings.ENVIRONMENT == "production":
-    trusted_hosts.extend(["api.defeah.com", "defeah.com"])
-
 app.add_middleware(
     TrustedHostMiddleware, 
-    allowed_hosts=trusted_hosts
+    allowed_hosts=settings.TRUSTED_HOSTS
 )
 
 # CORS middleware with comprehensive security configuration
@@ -219,28 +258,30 @@ async def health_check():
     This endpoint requires no authentication and provides essential information
     for automated health monitoring and load balancer health checks.
     """
-    import time
     from datetime import datetime
     from app.core.redis import test_redis_connection
     from app.core.database import check_database_connection
     
     start_time = time.time()
     
-    # Test database connection
-    db_start = time.time()
-    db_status = "healthy" if await check_database_connection() else "unhealthy"
-    db_response_time = round((time.time() - db_start) * 1000, 2)  # ms
+    # Test database connection with error handling
+    db_result = await safe_health_check(check_database_connection, "database")
     
-    # Test Redis connection
-    redis_start = time.time()
-    redis_status = "healthy" if test_redis_connection() else "unhealthy"
-    redis_response_time = round((time.time() - redis_start) * 1000, 2)  # ms
+    # Test Redis connection with error handling
+    redis_result = await safe_health_check(test_redis_connection, "redis")
     
-    # Determine overall status
-    overall_status = "healthy" if all([
-        db_status == "healthy",
-        redis_status == "healthy"
-    ]) else "degraded"
+    # Determine overall status based on critical services
+    critical_services_healthy = all([
+        db_result["status"] == "healthy",
+        redis_result["status"] == "healthy"
+    ])
+    
+    if critical_services_healthy:
+        overall_status = "healthy"
+    elif any(result["status"] == "error" for result in [db_result, redis_result]):
+        overall_status = "unhealthy"
+    else:
+        overall_status = "degraded"
     
     total_response_time = round((time.time() - start_time) * 1000, 2)
     
@@ -251,12 +292,12 @@ async def health_check():
         environment=settings.ENVIRONMENT,
         services={
             "database": ServiceStatus(
-                status=db_status,
-                response_time_ms=db_response_time
+                status=db_result["status"],
+                response_time_ms=db_result["response_time_ms"]
             ),
             "redis": ServiceStatus(
-                status=redis_status,
-                response_time_ms=redis_response_time
+                status=redis_result["status"],
+                response_time_ms=redis_result["response_time_ms"]
             ),
             "instagram_api": ServiceStatus(
                 status="not_configured",

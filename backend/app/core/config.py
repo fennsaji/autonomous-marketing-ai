@@ -95,6 +95,18 @@ class Settings(BaseSettings):
         "Retry-After"
     ]
     CORS_MAX_AGE: int = 600  # 10 minutes
+    
+    # Trusted Hosts Configuration
+    TRUSTED_HOSTS_DEVELOPMENT: List[str] = ["localhost", "127.0.0.1", "0.0.0.0"]
+    TRUSTED_HOSTS_PRODUCTION: List[str] = ["api.defeah.com", "defeah.com"]
+    
+    @property
+    def TRUSTED_HOSTS(self) -> List[str]:
+        """Get trusted hosts based on environment."""
+        base_hosts = self.TRUSTED_HOSTS_DEVELOPMENT.copy()
+        if self.ENVIRONMENT == "production":
+            base_hosts.extend(self.TRUSTED_HOSTS_PRODUCTION)
+        return base_hosts
 
     class Config:
         env_file = ".env"

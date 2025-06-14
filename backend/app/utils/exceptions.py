@@ -12,6 +12,40 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+# Sensitive field patterns that should be redacted in error responses
+SENSITIVE_FIELDS = {
+    "password", "token", "secret", "key", "auth", "credential", 
+    "api_key", "access_token", "refresh_token", "session", "cookie"
+}
+
+
+def sanitize_input(field_path: str, input_value: Any) -> Any:
+    """
+    Sanitize input values in error responses to prevent sensitive data leakage.
+    
+    Args:
+        field_path: The field path (e.g., "body.password")
+        input_value: The input value to potentially sanitize
+        
+    Returns:
+        Original value or "[REDACTED]" for sensitive fields
+    """
+    if input_value is None:
+        return None
+        
+    # Check if field path contains sensitive keywords
+    field_lower = field_path.lower()
+    if any(sensitive in field_lower for sensitive in SENSITIVE_FIELDS):
+        return "[REDACTED]"
+    
+    # Additional check for potential tokens (long alphanumeric strings)
+    if isinstance(input_value, str) and len(input_value) > 32:
+        # Check if it looks like a token (mostly alphanumeric, base64-like)
+        if input_value.replace("-", "").replace("_", "").replace(".", "").isalnum():
+            return "[REDACTED]"
+    
+    return input_value
+
 
 class BaseAPIException(Exception):
     """Base API exception class."""
@@ -211,7 +245,7 @@ def setup_exception_handlers(app: FastAPI):
             validation_errors[field_path] = {
                 "message": error["msg"],
                 "type": error["type"],
-                "input": error.get("input")
+                "input": sanitize_input(field_path, error.get("input"))
             }
         
         return JSONResponse(
