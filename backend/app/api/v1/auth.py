@@ -2,12 +2,15 @@
 Authentication endpoints for user registration, login, and token management.
 """
 import logging
-from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_db
 from app.core.auth import create_access_token, create_refresh_token, verify_token
-from app.core.deps import get_current_user, verify_refresh_token
+from app.core.deps import get_current_user
+from app.core.redis_client import token_blacklist
+from app.core.rate_limiting import check_authentication_rate_limit
 from app.services.user_service import UserService
 from app.models.user import User
 from app.schemas.auth import (
@@ -20,18 +23,23 @@ from app.schemas.auth import (
     UserResponse,
     LogoutRequest,
     LogoutResponse,
-    PasswordChangeRequest,
-    TokenPayload
+    PasswordChangeRequest
 )
 from app.core.config import settings
+from app.utils.exceptions import (
+    UserAlreadyExistsError, InvalidCredentialsError, PasswordTooWeakError,
+    RateLimitError
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+security = HTTPBearer()
 
 
 @router.post("/register", response_model=UserRegistrationResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_data: UserRegisterRequest,
+    request: Request,
     db: AsyncSession = Depends(get_async_db)
 ):
     """
@@ -41,22 +49,20 @@ async def register_user(
     Returns user information without authentication tokens.
     Email verification may be required before login.
     """
+    # Check rate limit
+    try:
+        await check_authentication_rate_limit(request, "registration")
+    except RateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=e.message,
+            headers={"Retry-After": str(e.details.get("retry_after", 300))}
+        )
+    
     user_service = UserService(db)
     
     try:
-        user, error = await user_service.create_user(user_data)
-        
-        if error:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error
-            )
-        
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create user account"
-            )
+        user = await user_service.create_user(user_data)
         
         logger.info("User registered successfully: %s", user.email)
         
@@ -65,7 +71,7 @@ async def register_user(
             message="User registered successfully. Please verify your email before logging in."
         )
         
-    except HTTPException:
+    except (UserAlreadyExistsError, PasswordTooWeakError):
         raise
     except Exception as e:
         logger.error("Error in user registration: %s", e)
@@ -78,6 +84,7 @@ async def register_user(
 @router.post("/login", response_model=LoginResponse)
 async def login_user(
     login_data: UserLoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_async_db)
 ):
     """
@@ -86,24 +93,20 @@ async def login_user(
     Validates user credentials and returns JWT tokens for API access.
     Tokens can be used for authenticated requests.
     """
+    # Check rate limit
+    try:
+        await check_authentication_rate_limit(request, "login")
+    except RateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=e.message,
+            headers={"Retry-After": str(e.details.get("retry_after", 60))}
+        )
+    
     user_service = UserService(db)
     
     try:
-        user, error = await user_service.authenticate_user(login_data)
-        
-        if error:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=error,
-                headers={"WWW-Authenticate": "Bearer"}
-            )
-        
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication failed",
-                headers={"WWW-Authenticate": "Bearer"}
-            )
+        user = await user_service.authenticate_user(login_data)
         
         # Create tokens
         access_token = create_access_token(data={"sub": str(user.id)})
@@ -125,6 +128,8 @@ async def login_user(
             message="Login successful"
         )
         
+    except InvalidCredentialsError:
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -202,20 +207,44 @@ async def refresh_token(
 @router.post("/logout", response_model=LogoutResponse)
 async def logout_user(
     logout_data: LogoutRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
     """
     Logout user and invalidate tokens.
     
-    Currently logs the action - token blacklisting can be implemented
-    with Redis for production use.
+    Blacklists the current access token and optionally the refresh token.
     """
     try:
-        # Log logout action
-        logger.info("User logged out: %s", current_user.email)
+        # Get the access token from authorization header
+        access_token = credentials.credentials
         
-        # TODO: Implement token blacklisting with Redis
-        # For now, we rely on token expiration
+        # Calculate TTL for token blacklisting (time until token expires)
+        payload = verify_token(access_token, token_type="access")
+        if payload:
+            exp = payload.get("exp", 0)
+            current_time = int(datetime.utcnow().timestamp())
+            ttl = max(exp - current_time, 0)
+            
+            # Blacklist access token
+            await token_blacklist.add_token(access_token, ttl)
+            logger.info("Access token blacklisted for user: %s", current_user.email)
+        
+        # Blacklist refresh token if provided
+        if logout_data.refresh_token:
+            try:
+                refresh_payload = verify_token(logout_data.refresh_token, token_type="refresh")
+                if refresh_payload:
+                    exp = refresh_payload.get("exp", 0)
+                    current_time = int(datetime.utcnow().timestamp())
+                    ttl = max(exp - current_time, 0)
+                    
+                    await token_blacklist.add_token(logout_data.refresh_token, ttl)
+                    logger.info("Refresh token blacklisted for user: %s", current_user.email)
+            except Exception as e:
+                logger.warning("Failed to blacklist refresh token: %s", e)
+        
+        logger.info("User logged out: %s", current_user.email)
         
         return LogoutResponse(
             message="Logout successful"
@@ -266,23 +295,17 @@ async def change_password(
     user_service = UserService(db)
     
     try:
-        success, error = await user_service.change_password(
+        await user_service.change_password(
             current_user,
             password_data.current_password,
             password_data.new_password
         )
         
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error or "Failed to change password"
-            )
-        
         logger.info("Password changed for user: %s", current_user.email)
         
         return {"message": "Password changed successfully"}
         
-    except HTTPException:
+    except (InvalidCredentialsError, PasswordTooWeakError):
         raise
     except Exception as e:
         logger.error("Error changing password: %s", e)

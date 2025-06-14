@@ -3,7 +3,7 @@ Authentication utilities for password hashing and JWT token management.
 """
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from app.core.config import settings
@@ -164,7 +164,7 @@ def get_password_strength_score(password: str) -> int:
     return min(score, 100)
 
 
-def validate_password_strength(password: str) -> tuple[bool, str]:
+def validate_password_strength(password: str) -> Tuple[bool, str]:
     """
     Validate password meets security requirements.
     
@@ -174,11 +174,11 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, error_message)
     """
-    if len(password) < 8:
-        return False, "Password must be at least 8 characters long"
+    if len(password) < settings.PASSWORD_MIN_LENGTH:
+        return False, f"Password must be at least {settings.PASSWORD_MIN_LENGTH} characters long"
     
-    if len(password) > 128:
-        return False, "Password must be less than 128 characters long"
+    if len(password) > settings.PASSWORD_MAX_LENGTH:
+        return False, f"Password must be less than {settings.PASSWORD_MAX_LENGTH} characters long"
     
     # Check for at least 3 of 4 character types
     has_lower = any(c.islower() for c in password)
@@ -195,7 +195,7 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
     
     # Check password strength score
     strength_score = get_password_strength_score(password)
-    if strength_score < 60:
-        return False, "Password is too weak. Please choose a stronger password"
+    if strength_score < settings.PASSWORD_STRENGTH_THRESHOLD:
+        return False, f"Password is too weak (score: {strength_score}/{settings.PASSWORD_STRENGTH_THRESHOLD}). Please choose a stronger password"
     
     return True, "Password meets security requirements"

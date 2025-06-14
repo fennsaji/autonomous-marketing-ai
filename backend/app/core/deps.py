@@ -9,8 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_async_db
 from app.core.auth import verify_token
+from app.core.redis_client import token_blacklist
 from app.models.user import User
-from app.schemas.auth import TokenPayload, AuthErrorResponse
+from app.schemas.auth import TokenPayload
+from app.utils.exceptions import (
+    TokenInvalidError, TokenExpiredError, TokenBlacklistedError,
+    AccountInactiveError, EmailNotVerifiedError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +91,23 @@ async def get_current_user(
         )
     
     token = credentials.credentials
+    
+    # Check if token is blacklisted
+    try:
+        is_blacklisted = await token_blacklist.is_blacklisted(token)
+        if is_blacklisted:
+            raise TokenBlacklistedError()
+    except TokenBlacklistedError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except Exception as e:
+        logger.warning("Error checking token blacklist: %s", e)
+        # Continue with validation if Redis is down
+    
+    # Verify token
     payload = verify_token(token, token_type="access")
     
     if not payload:

@@ -24,6 +24,18 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     PASSWORD_MIN_LENGTH: int = 8
     PASSWORD_MAX_LENGTH: int = 128
+    PASSWORD_STRENGTH_THRESHOLD: int = 60
+    
+    # Token Blacklisting
+    TOKEN_BLACKLIST_TTL: int = 86400  # 24 hours in seconds
+    
+    # Rate Limiting
+    LOGIN_RATE_LIMIT: int = 5  # attempts per minute
+    LOGIN_RATE_WINDOW: int = 60  # seconds
+    REGISTRATION_RATE_LIMIT: int = 3  # attempts per 5 minutes
+    REGISTRATION_RATE_WINDOW: int = 300  # seconds
+    GENERAL_RATE_LIMIT: int = 100  # requests per minute
+    GENERAL_RATE_WINDOW: int = 60  # seconds
     
     # Database
     DATABASE_URL: str = "postgresql://postgres:password@localhost:5433/defeah_marketing"
@@ -48,6 +60,9 @@ class Settings(BaseSettings):
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_MAX_CONNECTIONS: int = 20
+    REDIS_CONNECT_TIMEOUT: int = 5
+    REDIS_SOCKET_TIMEOUT: int = 10
     
     # CORS Configuration
     BACKEND_CORS_ORIGINS: List[str] = [

@@ -2,14 +2,19 @@
 User service for authentication and user management operations.
 """
 import logging
-from typing import Optional, Tuple
+from typing import Optional
 from uuid import uuid4
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from app.models.user import User
 from app.schemas.auth import UserRegisterRequest, UserLoginRequest
 from app.core.auth import hash_password, verify_password, validate_password_strength
+from app.utils.exceptions import (
+    UserAlreadyExistsError, InvalidCredentialsError, PasswordTooWeakError,
+    AccountInactiveError, DatabaseException
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +25,7 @@ class UserService:
     def __init__(self, db: AsyncSession):
         self.db = db
     
-    async def create_user(self, user_data: UserRegisterRequest) -> Tuple[Optional[User], Optional[str]]:
+    async def create_user(self, user_data: UserRegisterRequest) -> User:
         """
         Create a new user account.
         
@@ -28,18 +33,23 @@ class UserService:
             user_data: User registration data
             
         Returns:
-            Tuple of (User object, error message)
+            User object
+            
+        Raises:
+            PasswordTooWeakError: If password doesn't meet requirements
+            UserAlreadyExistsError: If user already exists
+            DatabaseException: If database operation fails
         """
         try:
             # Validate password strength
             is_valid, message = validate_password_strength(user_data.password)
             if not is_valid:
-                return None, message
+                raise PasswordTooWeakError(message)
             
             # Check if user already exists
             existing_user = await self.get_user_by_email(user_data.email)
             if existing_user:
-                return None, "User with this email already exists"
+                raise UserAlreadyExistsError()
             
             # Hash password
             hashed_password = hash_password(user_data.password)
@@ -59,18 +69,21 @@ class UserService:
             await self.db.refresh(user)
             
             logger.info("Created new user account: %s", user.email)
-            return user, None
+            return user
             
+        except (PasswordTooWeakError, UserAlreadyExistsError):
+            await self.db.rollback()
+            raise
         except IntegrityError as e:
             await self.db.rollback()
             logger.error("Database integrity error creating user: %s", e)
-            return None, "User with this email already exists"
+            raise UserAlreadyExistsError() from e
         except Exception as e:
             await self.db.rollback()
             logger.error("Error creating user: %s", e)
-            return None, "Failed to create user account"
+            raise DatabaseException("Failed to create user account") from e
     
-    async def authenticate_user(self, login_data: UserLoginRequest) -> Tuple[Optional[User], Optional[str]]:
+    async def authenticate_user(self, login_data: UserLoginRequest) -> User:
         """
         Authenticate user credentials.
         
@@ -78,32 +91,39 @@ class UserService:
             login_data: User login credentials
             
         Returns:
-            Tuple of (User object, error message)
+            User object
+            
+        Raises:
+            InvalidCredentialsError: If credentials are invalid
+            AccountInactiveError: If user account is inactive
+            DatabaseException: If database operation fails
         """
         try:
             # Get user by email
             user = await self.get_user_by_email(login_data.email)
             if not user:
-                return None, "Invalid email or password"
+                raise InvalidCredentialsError()
             
             # Check if user is active
             if not user.is_active:
-                return None, "User account is inactive"
+                raise AccountInactiveError()
             
             # Verify password
             if not verify_password(login_data.password, user.hashed_password):
                 logger.warning("Failed login attempt for user: %s", login_data.email)
-                return None, "Invalid email or password"
+                raise InvalidCredentialsError()
             
             # Update last login time
             await self.update_last_login(user)
             
             logger.info("User authenticated successfully: %s", user.email)
-            return user, None
+            return user
             
+        except (InvalidCredentialsError, AccountInactiveError):
+            raise
         except Exception as e:
             logger.error("Error authenticating user: %s", e)
-            return None, "Authentication failed"
+            raise DatabaseException("Authentication failed") from e
     
     async def get_user_by_email(self, email: str) -> Optional[User]:
         """
@@ -152,7 +172,6 @@ class UserService:
             True if successful, False otherwise
         """
         try:
-            from datetime import datetime
             user.last_login_at = datetime.utcnow()
             await self.db.commit()
             return True
@@ -221,7 +240,7 @@ class UserService:
             logger.error("Error verifying user email: %s", e)
             return False
     
-    async def change_password(self, user: User, current_password: str, new_password: str) -> Tuple[bool, Optional[str]]:
+    async def change_password(self, user: User, current_password: str, new_password: str) -> bool:
         """
         Change user password.
         
@@ -231,29 +250,37 @@ class UserService:
             new_password: New password
             
         Returns:
-            Tuple of (success, error_message)
+            True if successful
+            
+        Raises:
+            InvalidCredentialsError: If current password is incorrect
+            PasswordTooWeakError: If new password doesn't meet requirements
+            DatabaseException: If database operation fails
         """
         try:
             # Verify current password
             if not verify_password(current_password, user.hashed_password):
-                return False, "Current password is incorrect"
+                raise InvalidCredentialsError("Current password is incorrect")
             
             # Validate new password strength
             is_valid, message = validate_password_strength(new_password)
             if not is_valid:
-                return False, message
+                raise PasswordTooWeakError(message)
             
             # Hash new password
             user.hashed_password = hash_password(new_password)
             await self.db.commit()
             
             logger.info("Password changed for user: %s", user.email)
-            return True, None
+            return True
             
+        except (InvalidCredentialsError, PasswordTooWeakError):
+            await self.db.rollback()
+            raise
         except Exception as e:
             await self.db.rollback()
             logger.error("Error changing password: %s", e)
-            return False, "Failed to change password"
+            raise DatabaseException("Failed to change password") from e
     
     async def update_user_profile(self, user: User, full_name: Optional[str] = None) -> bool:
         """
