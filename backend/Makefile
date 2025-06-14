@@ -10,6 +10,9 @@ help:
 	@echo "  test             Run all tests"
 	@echo "  test-unit        Run unit tests only"
 	@echo "  test-integration Run integration tests only"
+	@echo "  test-security    Run security tests only"
+	@echo "  test-performance Run performance tests only"
+	@echo "  test-async       Run async tests only"
 	@echo "  test-coverage    Run tests with coverage report"
 	@echo "  lint             Run linting checks"
 	@echo "  format           Format code with black and isort"
@@ -39,6 +42,18 @@ test-unit:
 test-integration:
 	@echo "Running integration tests..."
 	pytest -v -m integration
+
+test-security:
+	@echo "Running security tests..."
+	pytest -v -m security
+
+test-performance:
+	@echo "Running performance tests..."
+	pytest -v -m performance
+
+test-async:
+	@echo "Running async tests..."
+	pytest -v -m asyncio
 
 test-coverage:
 	@echo "Running tests with coverage..."

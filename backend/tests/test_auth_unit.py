@@ -21,7 +21,7 @@ class TestPasswordHashing:
     """Test password hashing and verification functions."""
     
     @pytest.mark.unit
-    def test_hash_password_creates_hash(self):
+    def test_hash_password_creates_hash(self) -> None:
         """Test that password hashing creates a hash string."""
         password = "TestPassword123!"
         hashed = hash_password(password)
@@ -32,7 +32,7 @@ class TestPasswordHashing:
         assert len(hashed) > 0
     
     @pytest.mark.unit
-    def test_hash_password_different_hashes(self):
+    def test_hash_password_different_hashes(self) -> None:
         """Test that same password creates different hashes (due to salt)."""
         password = "TestPassword123!"
         hash1 = hash_password(password)
@@ -41,7 +41,7 @@ class TestPasswordHashing:
         assert hash1 != hash2
     
     @pytest.mark.unit
-    def test_verify_password_correct(self):
+    def test_verify_password_correct(self) -> None:
         """Test password verification with correct password."""
         password = "TestPassword123!"
         hashed = hash_password(password)
@@ -49,7 +49,7 @@ class TestPasswordHashing:
         assert verify_password(password, hashed) is True
     
     @pytest.mark.unit
-    def test_verify_password_incorrect(self):
+    def test_verify_password_incorrect(self) -> None:
         """Test password verification with incorrect password."""
         password = "TestPassword123!"
         wrong_password = "WrongPassword123!"

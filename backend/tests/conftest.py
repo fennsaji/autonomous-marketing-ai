@@ -1,6 +1,7 @@
 """
 Pytest configuration and fixtures.
 """
+import os
 import pytest
 import asyncio
 from typing import AsyncGenerator, Generator
@@ -9,13 +10,23 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import StaticPool
+import fakeredis
 
 from app.main import app
 from app.core.database import Base, get_db, get_async_db
 
-# Test database URLs
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:password@localhost:5433/defeah_marketing_test"
-SQLALCHEMY_ASYNC_DATABASE_URL = "postgresql+asyncpg://postgres:password@localhost:5433/defeah_marketing_test"
+# Test database URLs with environment variable support
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL", 
+    "postgresql://postgres:password@localhost:5433/defeah_marketing_test"
+)
+SQLALCHEMY_ASYNC_DATABASE_URL = os.getenv(
+    "TEST_ASYNC_DATABASE_URL",
+    "postgresql+asyncpg://postgres:password@localhost:5433/defeah_marketing_test"
+)
+
+# Test Redis configuration
+TEST_REDIS_URL = os.getenv("TEST_REDIS_URL", "redis://localhost:6379/1")
 
 # Create test database engines
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
@@ -139,3 +150,48 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest.fixture(scope="session")
+def test_settings():
+    """Test configuration settings."""
+    return {
+        "db_url": SQLALCHEMY_DATABASE_URL,
+        "async_db_url": SQLALCHEMY_ASYNC_DATABASE_URL,
+        "redis_url": TEST_REDIS_URL,
+        "redis_test_db": 1,
+    }
+
+
+@pytest.fixture(scope="function")
+def redis_mock():
+    """Mock Redis instance for testing."""
+    fake_redis = fakeredis.FakeRedis(decode_responses=True)
+    yield fake_redis
+    fake_redis.flushall()
+
+
+@pytest.fixture(scope="function")
+async def async_redis_mock():
+    """Mock async Redis instance for testing."""
+    fake_redis = fakeredis.FakeAsyncRedis(decode_responses=True)
+    yield fake_redis
+    await fake_redis.flushall()
+
+
+@pytest.fixture(scope="function")
+def mock_redis_client(redis_mock):
+    """Mock Redis client with token blacklist functionality."""
+    class MockTokenBlacklist:
+        def __init__(self, redis_client):
+            self.redis = redis_client
+        
+        async def add_token(self, token: str, ttl: int) -> None:
+            """Add token to blacklist."""
+            self.redis.setex(f"blacklist:{token}", ttl, "1")
+        
+        async def is_blacklisted(self, token: str) -> bool:
+            """Check if token is blacklisted."""
+            return bool(self.redis.get(f"blacklist:{token}"))
+    
+    return MockTokenBlacklist(redis_mock)
